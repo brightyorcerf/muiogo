@@ -12,4 +12,4 @@ Led by the United Nations Department of Economic and Social Affairs (DESA), thes
 
 The project will create a standardized interface and shared execution system linking the two models, enabling integrated analyses that are not currently possible. The enhanced OG–CLEWS framework will be deployed in more than 10 countries, supporting evidence-based policymaking and helping countries advance toward their Sustainable Development Goals through 2030.
 
-Check the Wiki for more detailed information about the project!
+Check the [Wiki](https://github.com/EAPD-DRB/MUIOGO/wiki) for more detailed information about the project!
