@@ -22,6 +22,16 @@ platform-independent.
 
 If you are new to this repo, start with the current installation notes below.
 
+## Resources
+
+Beyond the purely technical aspects, it is important to get a basic understanding of what both these models do:
+- CLEWS/OSeMOSYS: https://osemosys.readthedocs.io/
+- OG-Core: https://pslmodels.github.io/OG-Core/content/theory/intro.html
+
+Free on-line trainings are available here:
+- CLEWS: https://capacity.desa.un.org/article/introduction-clews
+- OG-Core: https://capacity.desa.un.org/article/mastering-og-core-model-theory-technical-applications-and-policy-use-cases
+
 ## Current installation status
 
 ### Windows
@@ -64,7 +74,7 @@ Issue and PR templates:
 - `.github/ISSUE_TEMPLATE/`
 - `.github/pull_request_template.md`
 
-Contribution rule:
+:exclamation:Contribution rule:
 
 - Create (or use) an issue first.
 - Implement in a feature branch (for example:
@@ -77,13 +87,13 @@ This repository is downstream and separately managed from upstream `OSeMOSYS/MUI
 - Upstream: `https://github.com/OSeMOSYS/MUIO`
 - This repo: `https://github.com/EAPD-DRB/MUIOGO`
 
-Contributions upstream are welcome, but delivery in MUIOGO cannot depend on
+Contributions upstream are welcome, but delivery in MUIOGO **cannot** depend on
 upstream timelines or releases.
 
 `MUIO-Mac` is a separate macOS port effort and can continue in parallel, but
-MUIOGO should not depend on it for delivery decisions.
+MUIOGO **cannot** depend on it for delivery decisions.
 
-## Wiki usage
+## Wiki
 
 The wiki is used only for now for high-level background context:
 
