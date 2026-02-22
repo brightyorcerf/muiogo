@@ -1,0 +1,36 @@
+name: Question or blocker
+description: Ask for clarification or report a blocker.
+title: "[Question/Blocker] "
+labels: ["blocked"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options:
+        - Question
+        - Blocker
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: blocking
+    attributes:
+      label: What is blocked?
+      description: Describe the failure point or missing decision.
+    validations:
+      required: true
+  - type: textarea
+    id: help
+    attributes:
+      label: Requested decision or help
+      description: What specific answer do you need?
+    validations:
+      required: true
+
