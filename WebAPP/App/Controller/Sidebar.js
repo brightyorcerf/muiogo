@@ -216,9 +216,13 @@ export class Sidebar {
         const casename = localStorage.getItem('selectedCase'); 
         const currentHash = window.location.hash;
 
-        if (casename) {
+        if (casename) { 
             this.Reload(casename);
-        } else if (currentHash.includes('/') && currentHash.split('/').length > 1) { 
+        } else if (currentHash.includes('/') && currentHash.split('/').length > 1) {  
+            const urlParts = currentHash.split('/'); 
+            this.initAppRoutes({ menu: false });
+        } else { 
+            this.initAppRoutes({ menu: false });
         }
     }
 
