@@ -135,6 +135,16 @@
 		<div id="modals"></div>
 		
 		<script> $("aside").load("App/View/Sidebar.html"); </script>
+
+		<script type="module">
+			import { Sidebar } from './App/Controller/Sidebar.js';
+
+			$("aside").load("App/View/Sidebar.html", function() {
+				// Trigger the automatic restoration of the sidebar state
+				Sidebar.AutoHydrate(); 
+			});
+		</script>
+		
         <script> $("header").load("App/View/Navbar.html"); </script>
 
 		<!--ROUTES-->

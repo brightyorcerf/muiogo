@@ -5,6 +5,7 @@ import { Message } from "../../Classes/Message.Class.js";
 
 export class Sidebar {
     static Reload(casename) {
+        localStorage.setItem('selectedCase', casename);
         Osemosys.getData(casename, 'genData.json')
         .then(genData => {
             const promise = [];
@@ -193,6 +194,31 @@ export class Sidebar {
         } 
         if(model.ResultsMenu){
             $('.dynamicResults').show();
+        }
+
+        let currentHash = window.location.hash; 
+        if (!currentHash || currentHash === "#/" || currentHash === "#") {
+            currentHash = "#/"; 
+        }
+ 
+        $('li').removeClass('active');
+        const activeLink = $(`a[href="${currentHash}"]`);
+
+        if (activeLink.length > 0) {
+            activeLink.closest('li').addClass('active');
+            activeLink.parents('li').addClass('active open'); 
+        } else {
+            $('#Navi > li:first-child').addClass('active');
+        }
+    }
+
+    static AutoHydrate() { 
+        const casename = localStorage.getItem('selectedCase'); 
+        const currentHash = window.location.hash;
+
+        if (casename) {
+            this.Reload(casename);
+        } else if (currentHash.includes('/') && currentHash.split('/').length > 1) { 
         }
     }
 
