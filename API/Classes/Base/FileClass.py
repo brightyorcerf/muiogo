@@ -1,5 +1,17 @@
-#import ujson as json
 import json
+import os
+from pathlib import Path
+from API.Classes.Base.Config import DATA_STORAGE
+
+from API.Classes.Base.Config import DATA_STORAGE
+
+def ensure_safe_path(target_path):
+    abs_target = Path(target_path).resolve()
+    abs_base = Path(DATA_STORAGE).resolve()
+    
+    if not str(abs_target).startswith(str(abs_base)): 
+        raise PermissionError(f"Access Denied: Path is outside allowed storage.")
+    return abs_target
 
 class File:
     @staticmethod

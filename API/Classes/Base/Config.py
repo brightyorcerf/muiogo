@@ -1,43 +1,35 @@
 from pathlib import Path
 import os
-#from dotenv import load_dotenv
 import platform
 
-#load environment variables
-#load_dotenv()
+# we use .parent to find the folder containing THIS file. 
+# if this file is inside an 'API' folder, use .resolve().parent.parent to get the Root.
+BASE_DIR = Path(__file__).resolve().parents[3]
 
-SYSTEM = platform.system()
+# now we anchor EVERYTHING to BASE_DIR so it's deterministic
+UPLOAD_FOLDER = BASE_DIR / 'WebAPP'
+WebAPP_PATH   = BASE_DIR / 'WebAPP'
+DATA_STORAGE  = BASE_DIR / 'WebAPP' / 'DataStorage'
+CLASS_FOLDER  = BASE_DIR / 'WebAPP' / 'Classes'
+SOLVERs_FOLDER = Path(os.getenv('SOLVER_PATH', BASE_DIR / 'WebAPP' / 'SOLVERs'))
+EXTRACT_FOLDER = BASE_DIR # root directory for extractions
 
-# S3_BUCKET = os.environ.get("S3_BUCKET")
-# S3_KEY = os.environ.get("S3_KEY")
-# S3_SECRET = os.environ.get("S3_SECRET")
+def set_secure_permissions(path):
+    """
+    Apply 755 (rwxr-xr-x) on Unix/macOS for safety.
+    Windows doesn't use these modes the same way, so we handle gracefully.
+    """
+    if platform.system() != "Windows":
+        try:
+            os.chmod(path, 0o755) 
+        except OSError as e:
+            print(f"Warning: Could not set permissions on {path}: {e}")
+    else:
+        # windows logic: ensure dir exists at least
+        path.mkdir(parents=True, exist_ok=True)
 
-#S3 bucket is not used in Osemosys
-S3_BUCKET = ""
-S3_KEY = ""
-S3_SECRET = ""
-
-ALLOWED_EXTENSIONS = set(['zip', 'application/zip'])
-ALLOWED_EXTENSIONS_XLS = set(['xls', 'xlsx'])
-
-UPLOAD_FOLDER = Path('WebAPP')
-WebAPP_PATH = Path('WebAPP')
-DATA_STORAGE = Path("WebAPP", 'DataStorage')
-CLASS_FOLDER = Path("WebAPP", 'Classes')
-EXTRACT_FOLDER = Path("")
-SOLVERs_FOLDER = Path('WebAPP', 'SOLVERs')
-
-
-#absolute paths
-# OSEMOSYS_ROOT = os.path.abspath(os.getcwd())
-# UPLOAD_FOLDER = Path(OSEMOSYS_ROOT, 'WebAPP')
-# WebAPP_PATH = Path(OSEMOSYS_ROOT, 'WebAPP')
-# DATA_STORAGE = Path(OSEMOSYS_ROOT, "WebAPP", 'DataStorage')
-# CLASS_FOLDER = Path(OSEMOSYS_ROOT, "WebAPP", 'Classes')
-# EXTRACT_FOLDER = Path(OSEMOSYS_ROOT, "")
-# SOLVERs_FOLDER = Path(OSEMOSYS_ROOT, 'WebAPP', 'SOLVERs')
-
-os.chmod(DATA_STORAGE, 0o777)
+# apply the guard
+set_secure_permissions(DATA_STORAGE) 
 
 HEROKU_DEPLOY = 0
 AWS_SYNC = 0
@@ -198,7 +190,7 @@ DUALS = {
     'UDC2_UserDefinedConstraintEquality': ['r','cn','y']
 }
 
-#needed for validation of inputs
+# needed for validation of inputs
 PARAMETERS_C = {
         'DiscountRate': ['r'],
         'OutputActivityRatio':['r','f','t','y','m'],

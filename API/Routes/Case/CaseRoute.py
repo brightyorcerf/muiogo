@@ -9,8 +9,27 @@ from Classes.Case.CaseClass import Case
 from Classes.Case.UpdateCaseClass import UpdateCase
 from Classes.Case.ImportTemplate import ImportTemplate
 from Classes.Base.SyncS3 import SyncS3
+from Classes.Base.FileClass import File, ensure_safe_path
+
+def safe_extract(zip_path, extract_to):
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        for member in zip_ref.infolist():
+            target_path = Path(extract_to) / member.filename
+            try:
+                ensure_safe_path(target_path)
+            except PermissionError:
+                print(f"Skipping malicious file in ZIP: {member.filename}")
+                continue 
+        zip_ref.extractall(extract_to)
 
 case_api = Blueprint('CaseRoute', __name__)
+@case_api.errorhandler(PermissionError)
+def handle_security_violation(e):
+    response = {
+        "message": "Security Violation: Access to the requested path is denied.",
+        "status_code": "danger"
+    }
+    return jsonify(response), 403
 
 @case_api.route("/initSyncS3", methods=['GET'])
 def initSyncS3():
@@ -43,14 +62,18 @@ def getResultCSV():
     try:
         casename = request.json['casename']
         caserunname = request.json['caserunname']
-        csvFolder = Path(Config.DATA_STORAGE,casename,"res", caserunname, "csv")
+        
+        # Build the path and then immediately validate it
+        raw_path = Path(Config.DATA_STORAGE, casename, "res", caserunname, "csv")
+        csvFolder = ensure_safe_path(raw_path)
+        
         if os.path.isdir(csvFolder):
             csvs = [ f.name for f in os.scandir(csvFolder) ]
         else:
             csvs = []
         return jsonify(csvs), 200
-    except(IOError):
-        return jsonify('No existing cases!'), 404
+    except (IOError, PermissionError):  
+        return jsonify('Access Denied or Path Not Found'), 403
 
 @case_api.route("/getDesc", methods=['POST'])
 def getDesc():
@@ -69,12 +92,11 @@ def getDesc():
 @case_api.route("/copyCase", methods=['POST'])
 def copy():
     try:
-        case = request.json['casename']
-        case_copy = case + '_copy'
-        casePath = Path(Config.DATA_STORAGE, case_copy, 'genData.json')
-
-        src =  Path(Config.DATA_STORAGE, case)
-        dest =  Path(Config.DATA_STORAGE, case + '_copy')
+        case = request.json['casename'] # Validate source
+        src = ensure_safe_path(Path(Config.DATA_STORAGE, case))
+        
+        case_copy = case + '_copy' # Validate destination
+        dest = ensure_safe_path(Path(Config.DATA_STORAGE, case_copy))
 
         if(os.path.isdir(dest)):
             response = {
@@ -102,7 +124,8 @@ def deleteCase():
     try:        
         case = request.json['casename']
         
-        casePath = Path(Config.DATA_STORAGE, case)
+        # Validate the path before deletion
+        casePath = ensure_safe_path(Path(Config.DATA_STORAGE, case))
         shutil.rmtree(casePath)
 
         if case == session.get('osycase'):
@@ -229,7 +252,6 @@ def updateData():
         return jsonify(response), 200
     except(IOError):
         return jsonify('No existing cases!'), 404
-
 @case_api.route("/saveCase", methods=['POST'])
 def saveCase():
     try:
@@ -237,40 +259,23 @@ def saveCase():
         casename = genData['osy-casename']
         case = session.get('osycase', None)
 
+        # SECURITY FIX: Ensure the target name isn't trying to escape DataStorage
+        target_case_path = ensure_safe_path(Path(Config.DATA_STORAGE, casename))
+
         configPath = Path(Config.DATA_STORAGE, 'Variables.json')
         vars = File.readParamFile(configPath)
 
-        
-        # viewDef = {}
-        # for group, lists in vars.items():
-        #     for list in lists:
-        #         viewDef[list['id']] = []
-
-        #ukoliko dodamo varijablu onda se prilikom update case treba taj var dodati defaultno u view Definition
-        # viewDataPath = Path(Config.DATA_STORAGE,casename,'view','viewDefinitions.json')
-        # viewDefExisting = File.readParamFile(viewDataPath)
-        # configPath = Path(Config.DATA_STORAGE, 'Variables.json')
-        # vars = File.readParamFile(configPath)
-        # viewDef = {}
-        # for group, lists in vars.items():
-        #     for list in lists:
-        #         if list['id'] not in viewDefExisting["osy-views"]:
-        #             viewDef[list['id']] = []
-        #         else:
-        #             viewDef[list['id']] = viewDefExisting["osy-views"][list['id']]
-
-
-        #ako je izabran case, edit mode
+        # --- BRANCH: EDIT EXISTING CASE ---
         if case != None and case != '':
-            genDataPath = Path(Config.DATA_STORAGE, case, "genData.json")
+            # SECURITY FIX: Ensure existing path is valid
+            existing_case_root = ensure_safe_path(Path(Config.DATA_STORAGE, case))
+            genDataPath = existing_case_root / "genData.json"
 
-            ##update za view i res ukoliko nema
-            resPath = Path(Config.DATA_STORAGE,case,'res')
-            viewPath = Path(Config.DATA_STORAGE,case,'view')
-            resDataPath = Path(Config.DATA_STORAGE,case,'view','resData.json')
-            viewDataPath = Path(Config.DATA_STORAGE,case,'view','viewDefinitions.json')
+            resPath = existing_case_root / 'res'
+            viewPath = existing_case_root / 'view'
+            resDataPath = viewPath / 'resData.json'
+            viewDataPath = viewPath / 'viewDefinitions.json'
 
-            # viewDataPathExisting = Path(Config.DATA_STORAGE,casename,'view','viewDefinitions.json')
             viewDefExisting = File.readParamFile(viewDataPath)
             viewDef = {}
             for group, lists in vars.items():
@@ -280,97 +285,70 @@ def saveCase():
                     else:
                         viewDef[list['id']] = viewDefExisting["osy-views"][list['id']]
 
-            viewData = {
-                    "osy-views": viewDef
-                }
-            File.writeFile( viewData, viewDataPath)
+            viewData = {"osy-views": viewDef}
+            File.writeFile(viewData, viewDataPath)
             
+            # Use 0o755 for hardened permissions
             if not os.path.exists(resPath):
-                os.makedirs(resPath, mode=0o777, exist_ok=False)
+                os.makedirs(resPath, mode=0o755, exist_ok=False)
 
             if not os.path.exists(viewPath):
-                os.makedirs(viewPath, mode=0o777, exist_ok=False)
-                resData = {
-                    "osy-cases":[]
-                }
-                File.writeFile( resData, resDataPath)
+                os.makedirs(viewPath, mode=0o755, exist_ok=False)
+                resData = {"osy-cases": []}
+                File.writeFile(resData, resDataPath)
 
-
-
-
-            #edit case sa istim imenom
             if case == casename:
-                #update modela 
                 caseUpdate = UpdateCase(case, genData)
                 caseUpdate.updateCase() 
-
-                #update genData
-                File.writeFile( genData, genDataPath)
-
-                ###########################potrebno updateovati i resData ukoliko smo brisali ili dodavali scenarios
-
+                File.writeFile(genData, genDataPath)
                 response = {
                     "message": "Your model configuration has been updated!",
                     "status_code": "edited"
                 }
-            #edit case sa drugim imenom, moramo provjeriit da li novo ime postoji u sistemu
             else:
-                if not os.path.exists(Path(Config.DATA_STORAGE,casename)):
-
-                    #update modela 
+                # Rename logic with security check
+                if not os.path.exists(target_case_path):
                     caseUpdate = UpdateCase(case, genData)
                     caseUpdate.updateCase() 
-
-                    #update gen data sa novim imenom
-                    File.writeFile( genData, genDataPath)
-
-                    #nedostaje update resData u smislu novih ili izbirsanih scenarija
-                    #rename case sa novim imenom
-                    os.rename(Path(Config.DATA_STORAGE,case), Path(Config.DATA_STORAGE,casename ))
-                    session['osycase'] = casename
+                    File.writeFile(genData, genDataPath)
                     
+                    os.rename(existing_case_root, target_case_path)
+                    session['osycase'] = casename
                     response = {
                         "message": "Your model configuration has been updated!",
                         "status_code": "edited"
                     }
-                #ako vec postoji case sa istim imenom
                 else:
                     response = {
                         "message": "Model with same name already exists!",
                         "status_code": "exist"
                     }
-        #novi case 
+
+        # --- BRANCH: NEW CASE ---
         else:
-            if not os.path.exists(Path(Config.DATA_STORAGE,casename)):
-                viewDef = {}
-                for group, lists in vars.items():
-                    for list in lists:
-                        viewDef[list['id']] = []
+            if not os.path.exists(target_case_path):
+                viewDef = {list['id']: [] for group, lists in vars.items() for list in lists}
 
                 session['osycase'] = casename
-                os.makedirs(Path(Config.DATA_STORAGE,casename))
-                genDataPath = Path(Config.DATA_STORAGE, casename, "genData.json")
-                File.writeFile( genData, genDataPath)
-                case = Case(casename, genData)
-                case.createCase()  
+                os.makedirs(target_case_path, mode=0o755)
+                
+                genDataPath = target_case_path / "genData.json"
+                File.writeFile(genData, genDataPath)
+                
+                case_obj = Case(casename, genData)
+                case_obj.createCase()  
 
-                resPath = Path(Config.DATA_STORAGE,casename,'res')
-                viewPath = Path(Config.DATA_STORAGE,casename,'view')
-                resDataPath = Path(Config.DATA_STORAGE,casename,'view','resData.json')
-                viewDataPath = Path(Config.DATA_STORAGE,casename,'view','viewDefinitions.json')
+                resPath = target_case_path / 'res'
+                viewPath = target_case_path / 'view'
+                resDataPath = viewPath / 'resData.json'
+                viewDataPath = viewPath / 'viewDefinitions.json'
+
                 if not os.path.exists(resPath):
-                    os.makedirs(resPath, mode=0o777, exist_ok=False)
+                    os.makedirs(resPath, mode=0o755)
                 if not os.path.exists(viewPath):
-                    os.makedirs(viewPath, mode=0o777, exist_ok=False)
-                    resData = {
-                        "osy-cases":[]
-                    }
-                    File.writeFile( resData, resDataPath)
-
-                    viewData = {
-                        "osy-views": viewDef
-                    }
-                    File.writeFile( viewData, viewDataPath)
+                    os.makedirs(viewPath, mode=0o755)
+                    File.writeFile({"osy-cases": []}, resDataPath)
+                    File.writeFile({"osy-views": viewDef}, viewDataPath)
 
                 response = {
                     "message": "Your model configuration has been saved!",
@@ -383,8 +361,8 @@ def saveCase():
                 }       
 
         return jsonify(response), 200
-    except(IOError):
-        return jsonify('Error saving model IOError!'), 404
+    except (IOError, PermissionError):
+        return jsonify('Security error or file access issue!'), 403
 
 @case_api.route("/prepareCSV", methods=['POST'])
 def prepareCSV():
