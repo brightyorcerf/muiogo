@@ -2317,7 +2317,7 @@ class DataFile(Osemosys):
                 #ovdje parsa result.txt file
                 df[['temp','value']] = df['temp'].str.split(')', expand=True)                
 
-                df = df.applymap(lambda x: x.strip() if isinstance(x,str) else x)
+                df = df.map(lambda x: x.strip() if isinstance(x,str) else x)
 
                 #error when moved to ython 3.11, Columns must have smae length as key
                 # df['value'] = df['value'].str.split(' ', expand=True)
@@ -3306,7 +3306,7 @@ class DataFile(Osemosys):
             
             if len(df) > 0:
                 df[['temp','value']] = df['temp'].str.split(')', expand=True)
-                df = df.applymap(lambda x: x.strip() if isinstance(x,str) else x)
+                df = df.map(lambda x: x.strip() if isinstance(x,str) else x)
                 #error when moved to ython 3.11, Columns must have smae length as key
                 # df['value'] = df['value'].str.split(' ', expand=True)
                 df['value'] = df['value'].str.split(' ', expand=True)[0]
@@ -3483,7 +3483,7 @@ class DataFile(Osemosys):
             
             if len(df) > 0:
                 df[['temp','value']] = df['temp'].str.split(')', expand=True)
-                df = df.applymap(lambda x: x.strip() if isinstance(x,str) else x)
+                df = df.map(lambda x: x.strip() if isinstance(x,str) else x)
                 #error when moved to ython 3.11, Columns must have smae length as key
                 # df['value'] = df['value'].str.split(' ', expand=True)
                 df['value'] = df['value'].str.split(' ', expand=True)[0]
@@ -4147,7 +4147,7 @@ class DataFile(Osemosys):
             
             if len(df) > 0:
                 df[['temp','value']] = df['temp'].str.split(')', expand=True)
-                df = df.applymap(lambda x: x.strip() if isinstance(x,str) else x)
+                df = df.map(lambda x: x.strip() if isinstance(x,str) else x)
                 #error when moved to ython 3.11, Columns must have smae length as key
                 # df['value'] = df['value'].str.split(' ', expand=True)
                 df['value'] = df['value'].str.split(' ', expand=True)[0]
