@@ -1,8 +1,14 @@
+
+                
 from flask import Blueprint, jsonify, request, send_file, session
 from pathlib import Path
 import shutil, datetime, time, os
 from Classes.Case.DataFileClass import DataFile
 from Classes.Base import Config
+from API.Classes.Base.TaskManager import TaskManager
+
+#initialize the global TaskManager
+task_manager = TaskManager()
 
 datafile_api = Blueprint('DataFileRoute', __name__)
 
@@ -223,40 +229,56 @@ def downloadResultsFile():
     except(IOError):
         return jsonify('No existing cases!'), 404
 
+@datafile_api.route("/status/<task_id>", methods=['GET'])
+def get_task_status(task_id):
+    """
+    polls the status of a background solver task.
+    returns JSON containing status, result, and real-time logs.
+    """
+    status_data = task_manager.get_task_status(task_id)
+    
+    if status_data["status"] == "Not Found":
+        return jsonify({"error": "Task ID not recognized"}), 404
+        
+    return jsonify(status_data), 200
+
 @datafile_api.route("/run", methods=['POST'])
 def run():
     try:
         casename = request.json['casename']
         caserunname = request.json['caserunname']
-        solver = request.json['solver']
-        txtFile = DataFile(casename)
-        response = txtFile.run(solver, caserunname)     
-        return jsonify(response), 200
-    # except Exception as ex:
-    #     print(ex)
-    #     return ex, 404
-    
-    except(IOError):
-        return jsonify('No existing cases!'), 404
+        solver = request.json['solver'] 
+        txtFile = DataFile(casename) 
+        task_id = task_manager.submit_task(txtFile.run, solver, caserunname)
+        
+        return jsonify({
+            "message": f"Solver ({solver}) started for {caserunname}",
+            "task_id": task_id,
+            "status_url": f"/api/status/{task_id}" 
+        }), 202 
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 @datafile_api.route("/batchRun", methods=['POST'])
 def batchRun():
     try:
-        start = time.time()
         modelname = request.json['modelname']
         cases = request.json['cases']
 
-        if modelname != None:
-            txtFile = DataFile(modelname)
-            for caserun in cases:
-                txtFile.generateDatafile(caserun)
-
-            response = txtFile.batchRun( 'CBC', cases) 
-        end = time.time()  
-        response['time'] = end-start 
-        return jsonify(response), 200
-    except(IOError):
-        return jsonify('Error!'), 404
+        if modelname:
+            txtFile = DataFile(modelname) 
+            task_id = task_manager.submit_task(txtFile.batchRun, 'CBC', cases)
+            
+            return jsonify({
+                "message": "Batch execution initiated",
+                "task_id": task_id,
+                "status_url": f"/api/status/{task_id}"
+            }), 202
+            
+        return jsonify({'error': 'Model name missing'}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 @datafile_api.route("/cleanUp", methods=['POST'])
 def cleanUp():

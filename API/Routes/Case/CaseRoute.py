@@ -10,6 +10,7 @@ from Classes.Case.UpdateCaseClass import UpdateCase
 from Classes.Case.ImportTemplate import ImportTemplate
 from Classes.Base.SyncS3 import SyncS3
 
+task_manager = TaskManager() #initialize the singleton
 case_api = Blueprint('CaseRoute', __name__)
 
 @case_api.route("/initSyncS3", methods=['GET'])
@@ -446,6 +447,16 @@ def run():
         return jsonify('No existing cases!'), 404
     except(IndexError):
         return jsonify('No existing cases!'), 404
+
+@case_api.route("/status/<task_id>", methods=['GET'])
+def get_task_status(task_id):
+    status_data = task_manager.get_task_status(task_id)
+    if status_data["status"] == "Not Found":
+        return jsonify(status_data), 404
+    
+    #if completed, the 'result' field will contain your 'response' 
+    #from the original run() function
+    return jsonify(status_data), 200
 
 
 ####################################################################################OBSOLETE AND SyncS3###################################################
