@@ -195,12 +195,6 @@ class Download(Thread):
         print("Deletion of zip archive done!")
 
 
-@upload_api.route('/myfunc', methods=["GET", "POST"])
-def myfunc():
-        thread_a = Download(request.__copy__())
-        thread_a.start()
-        return "Processing in background", 200
-
 @upload_api.route("/backupCase", methods=['GET'])
 def backupCase():
     try:    
