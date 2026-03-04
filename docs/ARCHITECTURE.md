@@ -47,7 +47,7 @@ incrementally with tested changes.
 ### Solver resolution
 
 Solver binaries (GLPK / CBC) are resolved at runtime using a three-tier
-priority chain implemented in `Osemosys._resolve_solver_folder`:
+priority chain implemented in `DependencyManager.resolve_solver` (see `Classes/Base/PlatformAdapter.py`):
 
 1. **Environment variable** — `SOLVER_GLPK_PATH` or `SOLVER_CBC_PATH`
 2. **System PATH** — via `shutil.which` (supports package-manager installs)

@@ -7,6 +7,7 @@ from itertools import product
 
 from Classes.Base import Config
 from Classes.Case.OsemosysClass import Osemosys
+from Classes.Base.PlatformAdapter import dependency_manager
 from Classes.Base.FileClass import File
 from Classes.Base.CustomThreadClass import CustomThread
 class DataFile(Osemosys):
@@ -2115,14 +2116,13 @@ class DataFile(Osemosys):
 
             
 
-            glpfolder = self.glpkFolder.resolve()
-            cbcfolder = self.cbcFolder.resolve()
-            glpsol_exec = Osemosys._find_solver_binary(glpfolder, "glpsol", recursive=False)
-            if glpsol_exec is None:
-                raise RuntimeError(
-                    f"Could not find 'glpsol' in resolved folder '{glpfolder}'. "
-                    "Check SOLVER_GLPK_PATH or solver installation."
-                )
+            glpsol_resolution = dependency_manager.resolve_solver(
+                env_var="SOLVER_GLPK_PATH",
+                binary_name="glpsol",
+                bundled_dir=Path(Config.SOLVERs_FOLDER, "GLPK"),
+            )
+            glpsol_exec = glpsol_resolution.binary_path
+            glpfolder = glpsol_exec.parent.resolve()
             # respath = self.resPath.resolve()
             # resCBCPath = self.resCBCPath.resolve()
 
@@ -2141,12 +2141,13 @@ class DataFile(Osemosys):
                 #Optimisation (solves LP file with CBC): cbc [LPfile].lp solve -solu [results].txt
                 #PREPROCESS data.txt
                 #subprocess.run('preprocess_data.py' + datafile + dataFile_processed)
-                cbc_exec = Osemosys._find_solver_binary(cbcfolder, "cbc", recursive=False)
-                if cbc_exec is None:
-                    raise RuntimeError(
-                        f"Could not find 'cbc' in resolved folder '{cbcfolder}'. "
-                        "Check SOLVER_CBC_PATH or solver installation."
-                    )
+                cbc_resolution = dependency_manager.resolve_solver(
+                    env_var="SOLVER_CBC_PATH",
+                    binary_name="cbc",
+                    bundled_dir=Path(Config.SOLVERs_FOLDER, "COIN-OR"),
+                )
+                cbc_exec = cbc_resolution.binary_path
+                cbcfolder = cbc_exec.parent.resolve()
 
                 self.preprocessData(self.dataFile, self.dataFile_processed)
                 print("PREPROCESSING DONE! --- %s seconds --- %s" % (time.time() - start_time, caserunname))

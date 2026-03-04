@@ -27,7 +27,6 @@ import argparse
 import hashlib
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -36,14 +35,21 @@ import venv
 import zipfile
 from pathlib import Path
 
+# Allow scripts to import API utilities without installation.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+API_DIR = PROJECT_ROOT / "API"
+if str(API_DIR) not in sys.path:
+    sys.path.insert(0, str(API_DIR))
+
+from Classes.Base.PlatformAdapter import PlatformAdapter, dependency_manager
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VENV_DIR = (Path.home() / ".venvs" / "muiogo").resolve()
 REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
-SYSTEM = platform.system()  # 'Darwin', 'Linux', 'Windows'
+SYSTEM = PlatformAdapter.system()  # 'Darwin', 'Linux', 'Windows'
 MIN_PYTHON = (3, 10)
 MAX_PYTHON = (3, 13)  # exclusive
 DATA_STORAGE_DIR = PROJECT_ROOT / "WebAPP" / "DataStorage"
@@ -111,8 +117,9 @@ def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def _which(name: str) -> str | None:
-    """Cross-platform shutil.which wrapper."""
-    return shutil.which(name)
+    """Cross-platform PATH lookup via DependencyManager."""
+    p = dependency_manager.which(name)
+    return str(p) if p else None
 
 
 def _python_supported(version: tuple[int, int]) -> bool:
@@ -291,7 +298,7 @@ def check_demo_data() -> bool:
 
 def _venv_python() -> Path:
     """Return the path to the venv Python interpreter."""
-    if SYSTEM == "Windows":
+    if PlatformAdapter.is_windows():
         return VENV_DIR / "Scripts" / "python.exe"
     return VENV_DIR / "bin" / "python"
 
@@ -419,7 +426,7 @@ def install_solvers() -> bool:
     success = True
 
     # ── macOS (Homebrew) ──────────────────────────────────────────────────
-    if SYSTEM == "Darwin":
+    if PlatformAdapter.is_macos():
         if not _which("brew"):
             _print_fail(
                 "Homebrew not found",
@@ -440,7 +447,7 @@ def install_solvers() -> bool:
                 success = False
 
     # ── Linux ─────────────────────────────────────────────────────────────
-    elif SYSTEM == "Linux":
+    elif PlatformAdapter.is_linux():
         pkg = _detect_linux_pkg_manager()
         if pkg is None:
             _print_fail(
@@ -465,7 +472,7 @@ def install_solvers() -> bool:
                 success = False
 
     # ── Windows ───────────────────────────────────────────────────────────
-    elif SYSTEM == "Windows":
+    elif PlatformAdapter.is_windows():
         if _which("choco"):
             if not glpk_ok:
                 r = _run(["choco", "install", "glpk", "-y"],
@@ -668,7 +675,7 @@ def _print_summary(results: dict[str, tuple[bool, str]]) -> None:
     print()
 
     if all_ok:
-        start_cmd = r'scripts\start.bat' if SYSTEM == "Windows" else "./scripts/start.sh"
+        start_cmd = r'scripts\start.bat' if PlatformAdapter.is_windows() else "./scripts/start.sh"
         run_cmd = f'"{_venv_python()}" "{PROJECT_ROOT / "API" / "app.py"}"'
         print(textwrap.dedent(f"""\
         {GREEN}{BOLD}All checks passed! Your MUIOGO environment is ready.{RESET}
@@ -681,8 +688,8 @@ def _print_summary(results: dict[str, tuple[bool, str]]) -> None:
                {run_cmd}
         """))
     else:
-        check_cmd = r'scripts\setup.bat --check' if SYSTEM == "Windows" else "./scripts/setup.sh --check"
-        setup_cmd = r'scripts\setup.bat' if SYSTEM == "Windows" else "./scripts/setup.sh"
+        check_cmd = r'scripts\setup.bat --check' if PlatformAdapter.is_windows() else "./scripts/setup.sh --check"
+        setup_cmd = r'scripts\setup.bat' if PlatformAdapter.is_windows() else "./scripts/setup.sh"
         print(textwrap.dedent(f"""\
         {RED}{BOLD}Some checks failed.{RESET}
 
@@ -760,12 +767,12 @@ def main() -> int:
 
     current_py = sys.version_info[:2]
     if not _python_supported(current_py):
-        if SYSTEM == "Darwin":
+        if PlatformAdapter.is_macos():
             install_hint = (
                 "Install Python 3.11 in Terminal: brew install python@3.11\n"
                 "Python.org macOS installer: https://www.python.org/downloads/macos/"
             )
-        elif SYSTEM == "Windows":
+        elif PlatformAdapter.is_windows():
             install_hint = (
                 "Install Python 3.11 in PowerShell: winget install -e --id Python.Python.3.11\n"
                 "Python.org Windows installer: https://www.python.org/downloads/windows/"
