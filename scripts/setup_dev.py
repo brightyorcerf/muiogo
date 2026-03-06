@@ -27,6 +27,8 @@ import argparse
 import hashlib
 import json
 import os
+import platform  
+import secrets   
 import shutil
 import subprocess
 import sys
@@ -34,6 +36,8 @@ import textwrap
 import venv
 import zipfile
 from pathlib import Path
+import urllib.request
+import tempfile
 
 # Allow scripts to import API utilities without installation.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,14 +53,23 @@ from Classes.Base.PlatformAdapter import PlatformAdapter, dependency_manager
 
 VENV_DIR = (Path.home() / ".venvs" / "muiogo").resolve()
 REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
-SYSTEM = PlatformAdapter.system()  # 'Darwin', 'Linux', 'Windows'
+ENV_FILE = PROJECT_ROOT / ".env" 
+ 
+SYSTEM = PlatformAdapter.system()  
 MIN_PYTHON = (3, 10)
-MAX_PYTHON = (3, 13)  # exclusive
+MAX_PYTHON = (3, 13)  
+
 DATA_STORAGE_DIR = PROJECT_ROOT / "WebAPP" / "DataStorage"
 DEMO_DATA_ARCHIVE = PROJECT_ROOT / "assets" / "demo-data" / "CLEWs.Demo.zip"
 DEMO_DATA_ARCHIVE_SHA256 = "facf4bda703f67b3c8b8697fea19d7d49be72bc2029fc05a68c61fd12ba7edde"
 DEMO_DATA_REQUIRED_DIRS = [DATA_STORAGE_DIR / "CLEWs Demo"]
 DEMO_DATA_MARKER = DATA_STORAGE_DIR / ".demo_data_installed.json"
+_CBC_WINDOWS_VERSION = "2.10.12"
+_CBC_WINDOWS_URL = (
+    f"https://github.com/coin-or/Cbc/releases/download/releases%2F{_CBC_WINDOWS_VERSION}/"
+    f"Cbc-releases.{_CBC_WINDOWS_VERSION}-w64-msvc17-md.zip"
+)
+_CBC_WINDOWS_SHA256 = "6acf3e300945b815b2cbb2b16d3732eeeec968a4962249167827062bbf83b3a3"
 
 # Core packages that must be importable after setup
 REQUIRED_IMPORTS = [
@@ -128,6 +141,58 @@ def _python_supported(version: tuple[int, int]) -> bool:
 
 def _requirements_hash_file() -> Path:
     return VENV_DIR / ".requirements.sha256"
+
+
+def _ensure_secret_key_in_env() -> bool:
+    """Create a persistent MUIOGO secret key in .env if one does not exist."""
+    _print_header("Step 2a: App secret key")
+
+    lines: list[str] = []
+    if ENV_FILE.exists():
+        try:
+            lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+        except Exception as exc:
+            _print_fail("Could not read .env file", str(exc))
+            return False
+
+    key_line_index: int | None = None
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if line.startswith("MUIOGO_SECRET_KEY="):
+            value = line.split("=", 1)[1].strip()
+            if value:
+                _print_pass("MUIOGO_SECRET_KEY already configured", str(ENV_FILE))
+                return True
+            key_line_index = i  # empty value — will replace below
+
+    existing_key = os.environ.get("MUIOGO_SECRET_KEY", "").strip()
+    new_key = existing_key or secrets.token_hex(32)
+    new_entry = f"MUIOGO_SECRET_KEY={new_key}"
+
+    if key_line_index is not None:
+        lines[key_line_index] = new_entry
+    else:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(new_entry)
+
+    try:
+        ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        _print_fail("Could not write .env file", str(exc))
+        return False
+
+    if SYSTEM != "Windows":
+        try:
+            os.chmod(ENV_FILE, 0o600)
+        except OSError:
+            pass  # best-effort
+
+    if existing_key:
+        _print_pass("Persisted existing MUIOGO_SECRET_KEY to .env", str(ENV_FILE))
+    else:
+        _print_pass("Created persistent MUIOGO_SECRET_KEY", str(ENV_FILE))
+    return True
 
 
 def _resolve_venv_dir(venv_dir_arg: str | None) -> Path:
@@ -292,6 +357,125 @@ def check_demo_data() -> bool:
     return False
 
 
+def _is_admin() -> bool:
+    if SYSTEM != "Windows":
+        return True
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
+def _windows_add_to_user_path(bin_dir: Path) -> None:
+    """Mutate current-session PATH, persist to HKCU registry, and broadcast change."""
+    # Mutate PATH in current session so verification passes immediately
+    current = os.environ.get("PATH", "")
+    entries = current.split(os.pathsep)
+    bin_str = str(bin_dir)
+
+    entries_lower = [e.lower() for e in entries]
+    if bin_str.lower() not in entries_lower:
+        os.environ["PATH"] = bin_str + os.pathsep + current
+
+    # Persist to user PATH via registry
+    try:
+        import winreg
+        import ctypes
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            "Environment",
+            0,
+            winreg.KEY_READ | winreg.KEY_SET_VALUE,
+        ) as key:
+            try:
+                cur, _ = winreg.QueryValueEx(key, "PATH")
+            except FileNotFoundError:
+                cur = ""
+
+            existing_paths_lower = [p.strip().lower() for p in cur.split(";") if p.strip()]
+
+            if bin_str.lower() not in existing_paths_lower:
+                new_path = f"{bin_str};{cur}" if cur else bin_str
+                winreg.SetValueEx(
+                    key,
+                    "PATH",
+                    0,
+                    winreg.REG_EXPAND_SZ,
+                    new_path,
+                )
+        # Broadcast PATH change
+        ctypes.windll.user32.SendMessageTimeoutW(
+            0xFFFF, 0x001A, 0, "Environment", 0, 1000, None
+        )
+    except Exception as exc:
+        _print_warn(
+            "Could not persist CBC to user PATH; add manually", f"{bin_dir} ({exc})"
+        )
+    print("  Note: open a NEW terminal for this PATH change to take effect.")
+
+
+def _install_cbc_windows_manual() -> bool:
+    """
+    Download the official CBC Windows binary, verify its SHA-256 checksum,
+    extract to %LOCALAPPDATA%\\cbc, and add the bin directory to the user PATH.
+    """
+    install_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "cbc"
+    tmp_path: Path | None = None
+
+    try:
+        _print_warn("Attempting manual CBC installation...")
+        install_dir.mkdir(parents=True, exist_ok=True)
+
+        fd, tmp_str = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        tmp_path = Path(tmp_str)
+
+        print(f"  Downloading CBC {_CBC_WINDOWS_VERSION} from GitHub ...")
+        req = urllib.request.Request(_CBC_WINDOWS_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=120) as response:
+            with open(tmp_path, "wb") as f:
+                f.write(response.read())
+
+        print("  Verifying CBC archive checksum ...")
+        actual_sha = _sha256(tmp_path)
+        if actual_sha.lower() != _CBC_WINDOWS_SHA256.lower():
+            _print_fail(
+                "CBC download checksum mismatch — aborting installation",
+                f"expected {_CBC_WINDOWS_SHA256}, got {actual_sha}",
+            )
+            return False
+        _print_pass("CBC archive checksum verified", actual_sha)
+
+        print("  Extracting CBC ...")
+        with zipfile.ZipFile(tmp_path, "r") as zf:
+            _safe_extract_zip(zf, install_dir)
+
+        bin_dir = install_dir / f"Cbc-releases.{_CBC_WINDOWS_VERSION}-w64-msvc17-md" / "bin"
+        if not bin_dir.exists():
+            # Fallback: search extracted tree for cbc.exe
+            matches = list(install_dir.rglob("cbc.exe"))
+            if not matches:
+                _print_fail("cbc.exe not found in extracted archive")
+                return False
+            bin_dir = matches[0].parent
+
+        _windows_add_to_user_path(bin_dir)
+        _print_pass("CBC installed", str(bin_dir))
+        return True
+
+    except Exception as exc:
+        _print_fail("CBC manual install failed", str(exc))
+        return False
+
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 1 – Python virtual environment
 # ──────────────────────────────────────────────────────────────────────────────
@@ -420,7 +604,7 @@ def install_solvers() -> bool:
     cbc_ok = _which("cbc") is not None
 
     if glpk_ok and cbc_ok:
-        print("  Both solvers already installed — skipping.")
+        _print_pass("  Both solvers are already available in PATH — skipping.")
         return True
 
     success = True
@@ -474,6 +658,12 @@ def install_solvers() -> bool:
     # ── Windows ───────────────────────────────────────────────────────────
     elif PlatformAdapter.is_windows():
         if _which("choco"):
+            if not _is_admin():
+                _print_warn(
+                    "Not running as Administrator",
+                    "choco installs may fail; CBC will use manual fallback if needed.",
+                )
+
             if not glpk_ok:
                 r = _run(["choco", "install", "glpk", "-y"],
                          capture_output=True, text=True)
@@ -485,21 +675,33 @@ def install_solvers() -> bool:
                 r = _run(["choco", "install", "coinor-cbc", "-y"],
                          capture_output=True, text=True)
                 if r.returncode != 0:
-                    _print_fail("choco install coinor-cbc", r.stderr.strip())
-                    success = False
+                    _print_warn("coinor-cbc not available via Chocolatey, using manual fallback")
+
+                    if not _install_cbc_windows_manual():
+                        success = False
 
         elif _which("winget"):
-            _print_warn(
-                "winget detected but GLPK/CBC may not be in winget repos",
-                "Falling back to manual install instructions.",
-            )
-            success = False
+            _print_warn("winget detected but GLPK/CBC not available via winget.")
+
+            if not glpk_ok:
+                success = False
+
+            if not cbc_ok:
+                if not _install_cbc_windows_manual():
+                    success = False
+
         else:
-            _print_fail(
-                "No supported package manager (choco) found on Windows",
-                "Install Chocolatey (https://chocolatey.org/) or install GLPK and CBC manually.",
+            _print_warn(
+                "No supported package manager (choco/winget) found on Windows",
+                "Install Chocolatey (https://chocolatey.org/) or install GLPK manually.",
             )
-            success = False
+
+            if not glpk_ok:
+                success = False
+
+            if not cbc_ok:
+                if not _install_cbc_windows_manual():
+                    success = False
 
     if success:
         print(f"  {GREEN}Solver dependencies installed.{RESET}")
@@ -826,6 +1028,8 @@ def main() -> int:
     else:
         results["Python dependencies"] = (False, "skipped because venv setup failed")
         _print_fail("Skipping Python deps (venv setup failed)")
+
+    results["App secret key"] = (_ensure_secret_key_in_env(), str(ENV_FILE))
 
     results["Solver dependencies (GLPK & CBC)"] = (install_solvers(), "")
 

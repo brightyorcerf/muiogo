@@ -98,7 +98,7 @@ def copy():
                 "message": 'Model <b>'+ case + '</b> copied!',
                 "status_code": "success"
             }
-        return(response)
+        return jsonify(response), 200
     except(IOError):
         raise IOError
     except OSError:

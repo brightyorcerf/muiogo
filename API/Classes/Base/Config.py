@@ -1,10 +1,38 @@
 from pathlib import Path
 import os
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 import platform
 
+# Central path validation utility (prevents path traversal)
+def validate_path(base_dir, user_input):
+    base_raw = os.fspath(base_dir)
+    user_raw = "" if user_input is None else os.fspath(user_input)
+
+    if isinstance(base_raw, (bytes, bytearray)):
+        base_raw = base_raw.decode("utf-8", "surrogateescape")
+    if isinstance(user_raw, (bytes, bytearray)):
+        user_raw = user_raw.decode("utf-8", "surrogateescape")
+
+    if "\x00" in base_raw or "\x00" in user_raw:
+        raise PermissionError("Path Traversal Attempt Detected")
+
+    base_abs = os.path.realpath(os.path.abspath(os.path.normpath(base_raw)))
+    target_abs = os.path.realpath(
+        os.path.abspath(os.path.normpath(os.path.join(base_abs, user_raw)))
+    )
+
+    try:
+        common = os.path.commonpath([base_abs, target_abs])
+    except ValueError:
+        raise PermissionError("Path Traversal Attempt Detected")
+
+    if common != base_abs or target_abs == base_abs:
+        raise PermissionError("Path Traversal Attempt Detected")
+
+    return target_abs
+
 #load environment variables
-#load_dotenv()
+load_dotenv()
 
 SYSTEM = platform.system()
 
